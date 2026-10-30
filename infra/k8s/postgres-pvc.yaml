@@ -1,0 +1,14 @@
+# Un pod est éphémère : sans volume persistant, chaque redémarrage de
+# PostgreSQL repartirait d'une base vide.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: tasks-board
+  labels:
+    app.kubernetes.io/part-of: tasks-board
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi

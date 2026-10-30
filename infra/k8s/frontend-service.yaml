@@ -1,0 +1,17 @@
+# NodePort : SEUL point d'entrée exposé hors du cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: tasks-board
+  labels:
+    app.kubernetes.io/part-of: tasks-board
+spec:
+  type: NodePort
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      nodePort: 30080

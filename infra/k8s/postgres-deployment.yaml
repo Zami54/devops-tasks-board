@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: tasks-board
+  labels:
+    app: postgres
+    app.kubernetes.io/part-of: tasks-board
+spec:
+  replicas: 1
+  # Recreate : deux pods ne peuvent pas monter le même volume ReadWriteOnce.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      # La base n'a aucune raison de parler à l'API Kubernetes.
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef: { name: app-config, key: POSTGRES_DB }
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: app-secrets, key: POSTGRES_USER }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: app-secrets, key: POSTGRES_PASSWORD }
+            - name: APP_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: app-secrets, key: APP_DB_PASSWORD }
+            # Un volume monté contient déjà « lost+found » : PostgreSQL refuse
+            # d'y initialiser une base. On décale les données dans un sous-dossier.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          securityContext:
+            # L'image démarre en root puis passe sur l'utilisateur « postgres » :
+            # on interdit toute RE-élévation de privilèges ensuite.
+            allowPrivilegeEscalation: false
+            # Système de fichiers en lecture seule : PostgreSQL n'écrit que dans
+            # son volume de données et dans deux dossiers en mémoire.
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+            - name: db-init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+      volumes:
+        - name: run
+          emptyDir: { medium: Memory, sizeLimit: 8Mi }
+        - name: tmp
+          emptyDir: { sizeLimit: 64Mi }
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+        # Généré par ./K8S-start.sh depuis infra/db (init_db.sql + app_user.sh).
+        - name: db-init
+          configMap:
+            name: db-init
+            defaultMode: 0555

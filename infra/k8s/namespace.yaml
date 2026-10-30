@@ -1,0 +1,13 @@
+# Espace de noms dédié : isole les ressources du projet et sert de
+# périmètre aux NetworkPolicies (network-policies.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tasks-board
+  labels:
+    app.kubernetes.io/part-of: tasks-board
+    # Pod Security Admission : Kubernetes refuse tout pod qui ne respecte
+    # pas le profil « baseline » (pas de conteneur privilégié, pas d'accès
+    # au réseau ou aux fichiers de l'hôte…).
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted

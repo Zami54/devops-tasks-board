@@ -1,0 +1,17 @@
+# Configuration NON sensible. Les mots de passe et la DATABASE_URL vivent
+# dans le Secret « app-secrets », créé par ./K8S-start.sh à partir du
+# fichier .env local : aucun secret n'est versionné dans Git.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: tasks-board
+  labels:
+    app.kubernetes.io/part-of: tasks-board
+data:
+  PORT: "3000"
+  NODE_ENV: "production"
+  # Cible du proxy /api de nginx : nom DNS interne du Service backend.
+  BACKEND_URL: "http://backend-service:3000"
+  DB_HOST: "postgres-service"
+  POSTGRES_DB: "tasksdb"

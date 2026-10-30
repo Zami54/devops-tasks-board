@@ -1,0 +1,17 @@
+# ClusterIP : la base n'est joignable QUE depuis l'intérieur du cluster,
+# et la NetworkPolicy n'y autorise que le backend.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: tasks-board
+  labels:
+    app.kubernetes.io/part-of: tasks-board
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

@@ -1,0 +1,17 @@
+# ClusterIP : l'API n'est pas exposée hors du cluster. Le navigateur passe
+# par nginx (frontend), qui relaie /api vers ce Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: tasks-board
+  labels:
+    app.kubernetes.io/part-of: tasks-board
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
