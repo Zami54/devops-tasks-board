@@ -1,22 +1,37 @@
 # Dependabot propose chaque semaine une pull request quand une dépendance
 # (npm, image Docker ou action GitHub) a une nouvelle version ou une faille
 # connue. La pull request passe par le pipeline avant toute fusion.
+# Les versions majeures (ex. Node 22 -> 25) sont ignorées : elles peuvent casser
+# la compatibilité et Node 25 n'est pas une version LTS. Les mises à jour
+# mineures et les correctifs (y compris de sécurité) restent proposés.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /backend
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: /frontend
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /backend
     schedule: { interval: weekly }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /frontend
     schedule: { interval: weekly }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
