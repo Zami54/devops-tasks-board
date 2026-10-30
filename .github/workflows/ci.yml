@@ -1,0 +1,197 @@
+# =============================================================
+#  Pipeline CI/CD — DevOps Tasks Board
+#
+#  Déclenché à chaque push et pull request sur main.
+#
+#    backend ──────────┐
+#    backend-integration┼──> docker (build + scan Trivy) ──> ✅ checks verts
+#    frontend ─────────┤                                       │
+#    secrets (gitleaks)┘                                       ▼
+#                                         Render déploie (autoDeployTrigger:
+#                                         checksPass, voir render.yaml)
+#
+#  Render attend que TOUS ces jobs soient verts sur le commit avant de
+#  déployer : un test ou un contrôle de sécurité en échec bloque la
+#  mise en production. Aucune clé d'API Render n'est stockée dans GitHub.
+# =============================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Moindre privilège : le jeton GitHub du pipeline ne peut que LIRE le dépôt.
+permissions:
+  contents: read
+
+# Chaque action tierce est épinglée par l'empreinte (SHA) de son commit, pas
+# par une étiquette : une étiquette peut être déplacée par un attaquant qui
+# compromet le dépôt de l'action (attaque de la chaîne d'approvisionnement),
+# un SHA ne peut pas l'être. Dependabot met ces empreintes à jour.
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # -----------------------------------------------------------
+  backend:
+    name: Backend — lint, tests, audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      # Analyse des dépendances (SCA) : échoue si une dépendance de
+      # production a une faille connue de gravité haute ou critique.
+      - run: npm audit --omit=dev --audit-level=high
+
+  # -----------------------------------------------------------
+  backend-integration:
+    name: Backend — tests avec PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: tasksdb
+          POSTGRES_USER: devops
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U devops -d tasksdb"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: devops
+      PGPASSWORD: ci-only-password
+      PGDATABASE: tasksdb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      # Même initialisation qu'en local : schéma, puis compte à droits limités.
+      - name: Initialiser la base
+        run: |
+          psql -v ON_ERROR_STOP=1 -f infra/db/init_db.sql
+          POSTGRES_USER=devops POSTGRES_DB=tasksdb APP_DB_PASSWORD=ci-app-password sh infra/db/app_user.sh
+      - run: npm ci
+        working-directory: backend
+      # L'API se connecte avec le compte limité, exactement comme en production.
+      - run: npm run test:integration
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://app_user:ci-app-password@localhost:5432/tasksdb
+
+  # -----------------------------------------------------------
+  frontend:
+    name: Frontend — lint, tests, build, audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  # -----------------------------------------------------------
+  secrets:
+    name: Recherche de secrets (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # tout l'historique : un secret supprimé reste dans Git
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # -----------------------------------------------------------
+  docker:
+    name: Images Docker — build et scan Trivy
+    runs-on: ubuntu-latest
+    needs: [backend, backend-integration, frontend, secrets]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build backend
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./backend
+          load: true
+          tags: tasks/backend:${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build frontend
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./frontend
+          load: true
+          tags: tasks/frontend:${{ github.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      # Rapport complet (HIGH + CRITICAL), visible dans les journaux.
+      - name: Rapport Trivy — backend
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: tasks/backend:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: '0'
+      - name: Rapport Trivy — frontend
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: tasks/frontend:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: '0'
+
+      # Barrière : une faille CRITIQUE qui a déjà un correctif bloque le pipeline.
+      - name: Barrière Trivy — failles critiques corrigeables
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: tasks/backend:${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      # Analyse de la configuration (Dockerfiles, manifests Kubernetes).
+      - name: Analyse de configuration (IaC)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: '0'
