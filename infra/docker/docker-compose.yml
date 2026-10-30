@@ -70,9 +70,10 @@ services:
     read_only: true
     # nginx a besoin d'écrire sa configuration générée et ses fichiers
     # temporaires : on lui donne deux dossiers en mémoire, rien d'autre.
+    # mode=1777 : l'utilisateur nginx (uid 101, non-root) doit pouvoir y écrire.
     tmpfs:
-      - /tmp
-      - /etc/nginx/conf.d
+      - /tmp:mode=1777
+      - /etc/nginx/conf.d:mode=1777
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
