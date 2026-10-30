@@ -253,7 +253,7 @@ export default function App() {
           </svg>
           <div>
             <h1>DevOps Tasks Board</h1>
-            <p>Du poste de développement au CLOUDER</p>
+            <p>CHANGEMENT TEST</p>
           </div>
         </div>
         <Stats stats={stats} />
