@@ -1,0 +1,23 @@
+# Dépendances : reconstruites par « npm ci » depuis les package-lock.json,
+# qui eux DOIVENT être versionnés (builds reproductibles).
+node_modules/
+
+# Artefacts de build
+dist/
+coverage/
+
+# Secrets et configuration locale : JAMAIS dans Git
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Rapports de scan générés en local
+zap-report.*
+trivy-report.*
+
+# Divers
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,15 @@
+# Sans ce fichier, un clone sous Windows convertit les scripts en fins de
+# ligne CRLF : le shebang devient « bash\r » et les scripts ne
+# s'exécutent plus dans les conteneurs Linux.
+* text=auto
+
+*.sh          text eol=lf
+*.sql         text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+*.template    text eol=lf
+Dockerfile    text eol=lf
+.dockerignore text eol=lf
+
+*.png binary
+*.jpg binary
