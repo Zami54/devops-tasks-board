@@ -8,7 +8,7 @@
 # =============================================================
 
 # ---------- Étape 1 : dépendances ----------
-FROM node:22-alpine AS deps
+FROM node:25-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 # --omit=dev        : ni linter ni outils de test dans l'image
@@ -17,7 +17,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # ---------- Étape 2 : image d'exécution ----------
-FROM node:22-alpine
+FROM node:25-alpine
 ENV NODE_ENV=production
 WORKDIR /app
 
