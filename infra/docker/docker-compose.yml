@@ -1,0 +1,88 @@
+# =============================================================
+#  Pile locale : PostgreSQL + API + frontend nginx
+#  Lancement : ./local-start.sh  (lit le fichier .env à la racine)
+#
+#  Surface d'attaque réduite :
+#   - UN SEUL port publié sur la machine : 8080 (le frontend). L'API et la
+#     base ne sont joignables que depuis l'intérieur de Docker.
+#   - Deux réseaux séparés : le frontend ne peut PAS parler à la base,
+#     seul le backend fait le lien.
+#   - Conteneurs en lecture seule, sans privilèges Linux superflus.
+# =============================================================
+name: devops-tasks-board
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?voir .env.example}
+      POSTGRES_USER: ${POSTGRES_USER:?voir .env.example}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?voir .env.example}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?voir .env.example}
+    volumes:
+      # Joués par PostgreSQL au TOUT PREMIER démarrage, dans l'ordre du nom :
+      # d'abord le schéma, puis le compte à droits limités de l'API.
+      - ../db/init_db.sql:/docker-entrypoint-initdb.d/01-init_db.sql:ro
+      - ../db/app_user.sh:/docker-entrypoint-initdb.d/02-app_user.sh:ro
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend-net]
+    # Aucun « ports: » : la base n'est pas joignable depuis la machine hôte
+    # ni depuis le réseau. Pour l'interroger :
+    #   docker compose exec db psql -U devops -d tasksdb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ../../backend
+    image: tasks/backend:1.0.0
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: postgres://app_user:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [backend-net, frontend-net]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../../frontend
+      args:
+        VITE_API_URL: ""
+    image: tasks/frontend:1.0.0
+    environment:
+      BACKEND_URL: http://backend:3000
+    ports:
+      - "8080:8080"
+    depends_on:
+      - backend
+    networks: [frontend-net]
+    read_only: true
+    # nginx a besoin d'écrire sa configuration générée et ses fichiers
+    # temporaires : on lui donne deux dossiers en mémoire, rien d'autre.
+    tmpfs:
+      - /tmp
+      - /etc/nginx/conf.d
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+networks:
+  frontend-net: {}
+  backend-net:
+    # « internal » : ce réseau n'a pas d'accès à Internet. La base ne peut
+    # ni être atteinte depuis l'extérieur, ni exfiltrer de données.
+    internal: true
+
+volumes:
+  pgdata:
