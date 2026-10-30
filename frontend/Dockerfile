@@ -23,7 +23,7 @@ RUN npm run build
 # ---------- Étape 2 : service ----------
 # Variante officielle de nginx qui tourne avec l'utilisateur « nginx »
 # (uid 101) et écoute sur 8080 : un port < 1024 exigerait root.
-FROM nginxinc/nginx-unprivileged:1.27-alpine
+FROM nginxinc/nginx-unprivileged:1.31-alpine
 
 # Au démarrage, l'image remplace ${BACKEND_URL} dans ce modèle : la MÊME
 # image pointe vers « backend:3000 » (Compose) ou « backend-service:3000 » (K8s).
