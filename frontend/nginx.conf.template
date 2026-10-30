@@ -1,0 +1,70 @@
+# =============================================================
+#  nginx — sert le frontend et relaie /api vers le backend
+#
+#  Le navigateur ne connaît qu'UNE adresse : celle du frontend. Le backend
+#  et la base ne sont jamais exposés directement (surface d'attaque réduite).
+# =============================================================
+server {
+    listen       8080;
+    server_name  _;
+
+    root  /usr/share/nginx/html;
+    index index.html;
+
+    # Ne pas annoncer la version de nginx dans les en-têtes et pages d'erreur.
+    server_tokens off;
+
+    # Une requête vers l'API ne dépasse jamais quelques Ko.
+    client_max_body_size 16k;
+
+    # --- En-têtes de sécurité (appliqués à toutes les réponses) ---
+    # CSP : la page ne peut charger que ses propres fichiers. Aucun script
+    # externe, aucune police distante, aucune intégration dans un iframe.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+
+    gzip            on;
+    gzip_types      text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+
+    # Sonde de santé pour Docker et Kubernetes (ne touche pas l'API).
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Relais vers l'API. Seules les méthodes utilisées par l'application
+    # passent ; tout le reste (PUT, TRACE, OPTIONS…) est refusé ici même.
+    location /api/ {
+        limit_except GET POST PATCH DELETE { deny all; }
+        proxy_pass         ${BACKEND_URL}/;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_hide_header  X-Powered-By;
+        proxy_read_timeout 15s;
+    }
+
+    # Fichiers compilés par Vite : leur nom contient une empreinte, on peut
+    # les mettre en cache longtemps. (add_header redéfini ici : nginx
+    # n'hérite pas des en-têtes du niveau supérieur dans ce cas.)
+    location /assets/ {
+        limit_except GET { deny all; }
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    # Application monopage : toute route inconnue renvoie index.html.
+    # Les fichiers statiques ne se lisent qu'en GET (HEAD inclus).
+    location / {
+        limit_except GET { deny all; }
+        try_files $uri $uri/ /index.html;
+    }
+}
