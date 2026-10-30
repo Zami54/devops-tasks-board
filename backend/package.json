@@ -1,0 +1,28 @@
+{
+  "name": "devops-tasks-board-backend",
+  "version": "1.0.0",
+  "description": "API REST du DevOps Tasks Board (Express + PostgreSQL)",
+  "private": true,
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch --env-file-if-exists=.env src/server.js",
+    "lint": "oxlint src test",
+    "test": "node --test test/unit.test.js",
+    "test:integration": "node --test test/integration.test.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.2",
+    "helmet": "^8.3.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "oxlint": "^1.90.0",
+    "supertest": "^7.3.1"
+  }
+}
