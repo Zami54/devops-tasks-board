@@ -1,0 +1,100 @@
+# =============================================================
+#  Blueprint Render — toute l'infrastructure cloud décrite en un fichier
+#
+#  Déploiement : Render > New > Blueprint > choisir ce dépôt.
+#  Ensuite, chaque push sur main est déployé AUTOMATIQUEMENT, mais
+#  seulement quand tous les contrôles GitHub Actions sont verts
+#  (autoDeployTrigger: checksPass).
+# =============================================================
+
+databases:
+  - name: tasks-db
+    databaseName: tasksdb
+    user: tasksuser
+    plan: free
+    # Même région que l'API : le réseau privé de Render est cloisonné par région.
+    region: frankfurt
+    # Liste vide = AUCUNE connexion acceptée depuis Internet. Seuls les
+    # services Render de la même région (notre API) peuvent joindre la base.
+    # Pour une intervention ponctuelle, ajouter temporairement SON adresse IP
+    # dans le tableau de bord Render, puis la retirer.
+    ipAllowList: []
+
+services:
+  # -----------------------------------------------------------
+  #  API Express (environnement Node, comme dans le sujet)
+  # -----------------------------------------------------------
+  - type: web
+    name: tasks-backend
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: backend
+    # Dépendances de production uniquement, sans scripts d'installation.
+    buildCommand: npm ci --omit=dev --ignore-scripts
+    startCommand: npm start
+    # Render interroge /health chaque minute et redémarre le service s'il
+    # ne répond plus (monitoring, étape 9 du sujet).
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # L'URL de la base est injectée par Render : aucun mot de passe dans Git.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tasks-db
+          property: connectionString
+      - key: DATABASE_SSL
+        value: "true"
+      # Au démarrage, l'API rejoue init_db.sql (idempotent) : une base recréée
+      # après l'expiration du plan gratuit est restaurée automatiquement.
+      - key: INIT_DB_ON_START
+        value: "true"
+      # Adresse publique du frontend, seule origine autorisée par CORS.
+      # Render la demande à la création (ex. https://tasks-frontend-xxxx.onrender.com).
+      - key: CORS_ORIGIN
+        sync: false
+    # PORT n'est pas défini : Render l'injecte lui-même et l'API le lit.
+
+  # -----------------------------------------------------------
+  #  Frontend React (site statique servi par le CDN de Render)
+  # -----------------------------------------------------------
+  - type: web
+    name: tasks-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci --ignore-scripts && npm run build
+    staticPublishPath: ./dist
+    autoDeployTrigger: checksPass
+    envVars:
+      # URL publique de l'API, lue au BUILD par Vite
+      # (ex. https://tasks-backend-xxxx.onrender.com). La modifier impose
+      # de relancer un déploiement du frontend.
+      - key: VITE_API_URL
+        sync: false
+    # Mêmes en-têtes de sécurité que nginx en local. Sur Render, le frontend
+    # appelle l'API sur un autre domaine : connect-src l'autorise.
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.onrender.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=()
+    routes:
+      # Application monopage : toute URL inconnue renvoie index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html
