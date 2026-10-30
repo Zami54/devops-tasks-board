@@ -29,10 +29,12 @@ services:
     runtime: node
     plan: free
     region: frankfurt
-    rootDir: backend
+    # Pas de rootDir : l'API a besoin de infra/db/init_db.sql au démarrage
+    # (INIT_DB_ON_START). Avec « rootDir: backend », Render ne fournit que le
+    # dossier backend et le script SQL devient introuvable.
     # Dépendances de production uniquement, sans scripts d'installation.
-    buildCommand: npm ci --omit=dev --ignore-scripts
-    startCommand: npm start
+    buildCommand: cd backend && npm ci --omit=dev --ignore-scripts
+    startCommand: cd backend && npm start
     # Render interroge /health chaque minute et redémarre le service s'il
     # ne répond plus (monitoring, étape 9 du sujet).
     healthCheckPath: /health
